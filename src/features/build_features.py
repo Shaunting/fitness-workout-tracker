@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from DataTransformation import LowPassFilter, PrincipalComponentAnalysis
 from TemporalAbstraction import NumericalAbstraction
+from FrequencyAbstraction import FourierTransformation
+from sklearn.cluster import KMeans
 
 
 # --------------------------------------------------------------
@@ -142,21 +144,92 @@ subset[["acc_r", "gyr_r"]].plot(subplots=True)
 # Temporal abstraction
 # --------------------------------------------------------------
 
+df_temporal = df_squared.copy()
+NumAbs = (
+    NumericalAbstraction()
+)  # Abstract statistical properties for a given window size
+
+predictor_columns = predictor_columns + ["pca_1", "pca_2", "pca_3", "acc_r", "gyr_r"]
+
+# Trial and error for window size
+window_size = int(
+    1000 / 200
+)  # 1000 miliseconds divide 200ms, we get a window size of 5 for 1 sec
+
+# Run Temporal abstraction based on the subset of sets (Similar exercise)
+df_temporal_list = []
+for set in df_temporal["set"].unique():
+    subset = df_temporal[df_temporal["set"] == set].copy()
+    for col in predictor_columns:
+        subset = NumAbs.abstract_numerical(subset, [col], window_size, "mean")
+        subset = NumAbs.abstract_numerical(subset, [col], window_size, "std")
+    df_temporal_list.append(subset)
+
+df_temporal = pd.concat(df_temporal_list)
+
+# visualize
+subset[["acc_y", "acc_y_temp_mean_ws_5", "acc_y_temp_std_ws_5"]].plot()
+subset[["gyr_y", "gyr_y_temp_mean_ws_5", "gyr_y_temp_std_ws_5"]].plot()
 
 # --------------------------------------------------------------
 # Frequency features
+# Decompose original signal into different frequencies
 # --------------------------------------------------------------
 
+df_freq = df_temporal.copy().reset_index()
+FreqAbs = FourierTransformation()
+fs = int(1000 / 200)
+window_size = int(2800 / 200)  # average length of repetition
+
+df_freq = FreqAbs.abstract_frequency(df_freq, ["acc_y"], window_size, fs)
+df_freq.columns
+
+# Visualize results
+subset = df_freq[df_freq["set"] == 1]
+subset[["acc_y"]].plot()
+subset[
+    [
+        "acc_y_max_freq",
+        "acc_y_freq_weighted",
+        "acc_y_pse",
+        "acc_y_freq_0.357_Hz_ws_14",
+        "acc_y_freq_2.5_Hz_ws_14",
+    ]
+].plot()
+
+df_freq_list = []
+for set in df_freq["set"].unique():
+    print(f"Applying Fourier transform for set {set}")
+    subset = df_freq[df_freq["set"] == set].reset_index(drop=True).copy()
+    subset = FreqAbs.abstract_frequency(subset, predictor_columns, window_size, fs)
+    df_freq_list.append(subset)
+
+df_freq = pd.concat(df_freq_list).set_index("epoch (ms)", drop=True)
 
 # --------------------------------------------------------------
 # Dealing with overlapping windows
 # --------------------------------------------------------------
+# Allow of a certain percentage of overlap
 
+# Drop all missing values
+df_freq.dropna(inplace=True)
+
+# Get rid of 50% of rows (Skipping every other row)
+df_freq = df_freq.iloc[::2]
 
 # --------------------------------------------------------------
 # Clustering
 # --------------------------------------------------------------
 
+df_cluster = df_freq.copy()
+cluster_columns = ["acc_x", "acc_y", "acc_z"]
+k_values = range(2, 10)
+inertias = []
+
+for k in k_values:
+    subset = df_cluster[cluster_columns]
+    kmeans = kMeans(k=k, n_init=20, random_state=0)
+    cluster_labels = kmeans.fit_predict(subset)
 
 # --------------------------------------------------------------
 # Export dataset
